@@ -27,7 +27,7 @@ func main() {
 	}
 }
 
-func NewAgent(client *anthropic.Client, getUserMessage func(string, bool)) *Agent {
+func NewAgent(client *anthropic.Client, getUserMessage func() (string, bool)) *Agent {
 	return &Agent{
 		client:         client,
 		getUserMessage: getUserMessage,
