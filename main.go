@@ -8,7 +8,9 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/invopop/jsonschema"
@@ -25,7 +27,7 @@ func main() {
 		return scanner.Text(), true
 	}
 
-	tools := []ToolDefinition{ReadFileDefinition, ListFilesDefinition, EditFileDefinition}
+	tools := []ToolDefinition{ReadFileDefinition, ListFilesDefinition, EditFileDefinition, ConvertUnixTimeDefinition}
 	agent := NewAgent(&client, getUserMessage, tools)
 	err := agent.Run(context.TODO())
 	if err != nil {
@@ -305,4 +307,33 @@ func createNewFile(filePath, content string) (string, error) {
 	}
 
 	return fmt.Sprintf("Successfully created file: %s", filePath), nil
+}
+
+var ConvertUnixTimeDefinition = ToolDefinition{
+	Name:        "convert_unix_time",
+	Description: "Convert a Unix timestamp to a human-readable date and time. Use this when you find a Unix timestamp.",
+	InputSchema: ConvertUnixTimeInputSchema,
+	Function:    ConvertUnixTime,
+}
+
+type ConvertUnixTimeInput struct {
+	Timestamp string `json:"timestamp" jsonschema_description:"The Unix timestamp to convert."`
+}
+
+var ConvertUnixTimeInputSchema = GenerateSchema[ConvertUnixTimeInput]()
+
+func ConvertUnixTime(input json.RawMessage) (string, error) {
+	convertUnixTimeInput := ConvertUnixTimeInput{}
+	err := json.Unmarshal(input, &convertUnixTimeInput)
+	if err != nil {
+		return "", err
+	}
+
+	timestamp, err := strconv.ParseInt(convertUnixTimeInput.Timestamp, 10, 64)
+	if err != nil {
+		return "", err
+	}
+
+	t := time.Unix(timestamp, 0)
+	return t.Format(time.RFC3339), nil
 }
