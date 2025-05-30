@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/invopop/jsonschema"
@@ -23,7 +25,7 @@ func main() {
 		return scanner.Text(), true
 	}
 
-	tools := []ToolDefinition{ReadFileDefinition, ListFilesDefinition}
+	tools := []ToolDefinition{ReadFileDefinition, ListFilesDefinition, EditFileDefinition}
 	agent := NewAgent(&client, getUserMessage, tools)
 	err := agent.Run(context.TODO())
 	if err != nil {
@@ -237,4 +239,70 @@ func ListFiles(input json.RawMessage) (string, error) {
 	}
 
 	return string(result), nil
+}
+
+var EditFileDefinition = ToolDefinition{
+	Name:        "edit_file",
+	Description: `Make edits to a text file. Replaces 'old_string' with 'new_string' in a given file. 'old_string' and 'new_string' MUST be different from each other. If the file specified with 'path' doesn't exist, it will be created.`,
+	InputSchema: EditFileInputSchema,
+	Function:    EditFile,
+}
+
+type EditFileInput struct {
+	Path      string `json:"path" jsonschema_description:"The path to the file."`
+	OldString string `json:"old_string" jsonschema_description:"Text to search for in the file. Must match exactly and only have one match exactly."`
+	NewString string `json:"new_string" jsonschema_description:"Text to replace old_string with in the file."`
+}
+
+var EditFileInputSchema = GenerateSchema[EditFileInput]()
+
+func EditFile(input json.RawMessage) (string, error) {
+	editFileInput := EditFileInput{}
+	err := json.Unmarshal(input, &editFileInput)
+	if err != nil {
+		return "", err
+	}
+
+	if editFileInput.Path == "" || editFileInput.OldString == editFileInput.NewString {
+		return "", fmt.Errorf("invalid input parameters")
+	}
+
+	content, err := os.ReadFile(editFileInput.Path)
+	if err != nil {
+		if os.IsNotExist(err) && editFileInput.OldString == "" {
+			return createNewFile(editFileInput.Path, editFileInput.NewString)
+		}
+		return "", err
+	}
+
+	oldContent := string(content)
+	newContent := strings.Replace(oldContent, editFileInput.OldString, editFileInput.NewString, -1)
+
+	if oldContent == newContent && editFileInput.OldString != "" {
+		return "", fmt.Errorf("old_string not found in file")
+	}
+
+	err = os.WriteFile(editFileInput.Path, []byte(newContent), 0664)
+	if err != nil {
+		return "", err
+	}
+
+	return "OK", nil
+}
+
+func createNewFile(filePath, content string) (string, error) {
+	dir := path.Dir(filePath)
+	if dir != "." {
+		err := os.MkdirAll(dir, 0755)
+		if err != nil {
+			return "", fmt.Errorf("failed to create directory: %w", err)
+		}
+	}
+
+	err := os.WriteFile(filePath, []byte(content), 0664)
+	if err != nil {
+		return "", fmt.Errorf("failed to create file: %w", err)
+	}
+
+	return fmt.Sprintf("Successfully created file: %s", filePath), nil
 }
